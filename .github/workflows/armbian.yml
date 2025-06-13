@@ -17,7 +17,7 @@ jobs:
         with:
           repository: armbian/build
           # 使用 25.05 分支
-          ref: '25.05'
+          ref: 'v25.05'
 
       - name: Prepare build environment and compile
         run: |
