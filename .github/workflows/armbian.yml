@@ -42,12 +42,12 @@ jobs:
 
       - name: Build Armbian
         run: |
-          git clone --depth=1 --branch=v23.11 https://github.com/armbian/build
+          git clone --depth=1 --branch=v25.5.1 https://github.com/armbian/build
           cd build
           ./compile.sh \
           BOARD=onecloud \
           BRANCH=current \
-          RELEASE=jammy \
+          RELEASE=bookworm \
           BUILD_MINIMAL=yes \
           BUILD_DESKTOP=no \
           KERNEL_CONFIGURE=no
