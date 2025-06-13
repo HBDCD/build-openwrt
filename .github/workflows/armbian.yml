@@ -42,7 +42,7 @@ jobs:
 
       - name: Build Armbian
         run: |
-          git clone --depth=1 --branch=v25.5.1 https://github.com/armbian/build
+          git clone --depth=1 --branch=v25.05 https://github.com/armbian/build
           cd build
           ./compile.sh \
           BOARD=onecloud \
