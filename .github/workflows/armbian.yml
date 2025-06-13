@@ -1,123 +1,48 @@
-name: Armbian
+name: Build Armbian for OneCloud
 
 on:
+  # 允许你手动在 Actions 标签页中触发此 workflow
   workflow_dispatch:
-    inputs:
-      upload_artifacts:
-        description: '上传固件'
-        required: true
-        default: 'false'
-        type: boolean
-      upload_release:
-        description: '上传到Release'
-        required: true
-        default: 'true'
-        type: boolean
+  # 也可以设置为在你 push 到 main 分支时自动触发
+  # push:
+  #   branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout Armbian source code
         uses: actions/checkout@v4
+        with:
+          repository: armbian/build
+          # 使用 25.05 分支
+          ref: '25.05'
 
-      - name: Set variables
+      - name: Prepare build environment and compile
         run: |
-          if [[ "${{ github.event.inputs.upload_artifacts }}" == 'true' ]]; then
-            echo "UPLOAD_ARTIFACTS=true" >> $GITHUB_ENV
-          else
-            echo "UPLOAD_ARTIFACTS=false" >> $GITHUB_ENV
-          fi
-          if [[ "${{ github.event.inputs.upload_release }}" == 'true' ]]; then
-            echo "UPLOAD_RELEASE=true" >> $GITHUB_ENV
-          else
-            echo "UPLOAD_RELEASE=false" >> $GITHUB_ENV
-          fi
-
-      - name: Install dependencies
-        run: |
+          # 禁用 apt-daily.service 来避免在安装依赖时出现锁文件问题
           sudo systemctl stop apt-daily.timer
           sudo systemctl stop apt-daily.service
           sudo systemctl stop apt-daily-upgrade.timer
           sudo systemctl stop apt-daily-upgrade.service
           
+          # 更新软件包列表并安装编译所需的依赖
           sudo apt-get update
           sudo apt-get -y install git build-essential ccache gcc g++ make
           
+          # 开始编译
+          # BOARD: 指定设备为 onecloud
+          # BRANCH: 指定内核分支，通常为 current 或 legacy
+          # BUILD_DESKTOP: "no" 表示不构建桌面环境
+          # BUILD_MINIMAL: "yes" 表示构建 minimal 镜像
+          # RELEASE: 指定发行的代号，例如 bookworm
+          ./compile.sh BOARD=onecloud BRANCH=current BUILD_MINIMAL=yes RELEASE=bookworm
 
-      - name: Build Armbian
-        run: |
-          git clone --depth=1 --branch=v25.05 https://github.com/armbian/build
-          cd build
-          ./compile.sh \
-          BOARD=onecloud \
-          BRANCH=current \
-          RELEASE=noble \
-          BUILD_MINIMAL=yes \
-          BUILD_DESKTOP=no \
-          KERNEL_CONFIGURE=no
-          sudo chown $(id -u):$(id -g) -R output/
-
-      - name: Install Dependents
-        run: |
-          sudo apt install img2simg
-
-          ver="v0.3.1"
-          chmod +x ./AmlImg
-
-      - name: Download and unpack the latest u-boot
-        run: |
-          ./AmlImg unpack ./uboot.img burn/
-
-      - name: Extract boot and rootfs partitions
-        run: |
-          diskimg=$(ls build/output/images/*.img)
-          loop=$(sudo losetup --find --show --partscan $diskimg)
-          sudo img2simg ${loop}p1 burn/boot.simg
-          sudo img2simg ${loop}p2 burn/rootfs.simg
-          sudo losetup -d $loop
-          sudo chown $(id -u):$(id -g) -R burn/
-
-      - name: Generate burn image
-        run: |
-          echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
-          echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" >burn/rootfs.VERIFY
-
-          cat <<EOF >>burn/commands.txt
-          PARTITION:boot:sparse:boot.simg
-          VERIFY:boot:normal:boot.VERIFY
-          PARTITION:rootfs:sparse:rootfs.simg
-          VERIFY:rootfs:normal:rootfs.VERIFY
-          EOF
-
-          prefix=$(ls ./build/output/images/*.img | sed 's/\.img$//')
-          burnimg=${prefix}.burn.img
-          ./AmlImg pack $burnimg burn/
-
-      - name: Hash and compress images
-        run: |
-          for f in ./build/output/images/*.img; do
-            sha256sum "$f" | tee -a sha256sum
-            xz --threads=0 --compress "$f"
-          done
-
-      - name: Create Release Tag
-        if: env.UPLOAD_RELEASE == 'true'
-        run: |
-          echo "release_tag=$(date +%Y%m%d)" >> $GITHUB_ENV
-
-      - name: Upload artifacts
-        if: env.UPLOAD_ARTIFACTS == 'true'
-        uses: actions/upload-artifact@main
+      - name: Upload artifact
+        # 编译成功后，将生成的镜像文件上传到 GitHub Actions 的 afrtifacts 中
+        uses: actions/upload-artifact@v4
         with:
-          name: armbian-image
-          path: ./build/output/images/*.xz
-
-      - name: Upload to release
-        if: env.UPLOAD_RELEASE == 'true'
-        uses: softprops/action-gh-release@v2.1.0
-        with:
-          tag_name: ${{ env.release_tag }}
-          name: Armbian ${{ env.release_tag }}
-          files: ./build/output/images/*.xz
+          name: armbian-onecloud-minimal-image
+          # Armbian 的输出文件通常在 output/images 目录下
+          path: output/images/*
