@@ -1,117 +1,13 @@
-name: Armbian
-
+name: "Build Armbian"
 on:
   workflow_dispatch:
-    inputs:
-      upload_artifacts:
-        description: '上传固件'
-        required: true
-        default: 'false'
-        type: boolean
-      upload_release:
-        description: '上传到Release'
-        required: true
-        default: 'true'
-        type: boolean
-
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-
+  build-armbian:
+    runs-on: ubuntu-24.04-arm # use ubuntu-24.04 when building x86 or riscv64
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set variables
-        run: |
-          if [[ "${{ github.event.inputs.upload_artifacts }}" == 'true' ]]; then
-            echo "UPLOAD_ARTIFACTS=true" >> $GITHUB_ENV
-          else
-            echo "UPLOAD_ARTIFACTS=false" >> $GITHUB_ENV
-          fi
-          if [[ "${{ github.event.inputs.upload_release }}" == 'true' ]]; then
-            echo "UPLOAD_RELEASE=true" >> $GITHUB_ENV
-          else
-            echo "UPLOAD_RELEASE=false" >> $GITHUB_ENV
-          fi
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git build-essential debootstrap
-
-      - name: Build Armbian
-        run: |
-          git clone --depth=1 --branch=v25.05 https://github.com/armbian/build
-          cd build
-          ./compile.sh \
-          BOARD=onecloud \
-          BRANCH=current \
-          RELEASE=noble \
-          BUILD_MINIMAL=yes \
-          BUILD_DESKTOP=no \
-          KERNEL_CONFIGURE=no
-          sudo chown $(id -u):$(id -g) -R output/
-
-      - name: Install Dependents
-        run: |
-          sudo apt install img2simg
-
-          ver="v0.3.1"
-          chmod +x ./AmlImg
-
-      - name: Download and unpack the latest u-boot
-        run: |
-          ./AmlImg unpack ./uboot.img burn/
-
-      - name: Extract boot and rootfs partitions
-        run: |
-          diskimg=$(ls build/output/images/*.img)
-          loop=$(sudo losetup --find --show --partscan $diskimg)
-          sudo img2simg ${loop}p1 burn/boot.simg
-          sudo img2simg ${loop}p2 burn/rootfs.simg
-          sudo losetup -d $loop
-          sudo chown $(id -u):$(id -g) -R burn/
-
-      - name: Generate burn image
-        run: |
-          echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
-          echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" >burn/rootfs.VERIFY
-
-          cat <<EOF >>burn/commands.txt
-          PARTITION:boot:sparse:boot.simg
-          VERIFY:boot:normal:boot.VERIFY
-          PARTITION:rootfs:sparse:rootfs.simg
-          VERIFY:rootfs:normal:rootfs.VERIFY
-          EOF
-
-          prefix=$(ls ./build/output/images/*.img | sed 's/\.img$//')
-          burnimg=${prefix}.burn.img
-          ./AmlImg pack $burnimg burn/
-
-      - name: Hash and compress images
-        run: |
-          for f in ./build/output/images/*.img; do
-            sha256sum "$f" | tee -a sha256sum
-            xz --threads=0 --compress "$f"
-          done
-
-      - name: Create Release Tag
-        if: env.UPLOAD_RELEASE == 'true'
-        run: |
-          echo "release_tag=$(date +%Y%m%d)" >> $GITHUB_ENV
-
-      - name: Upload artifacts
-        if: env.UPLOAD_ARTIFACTS == 'true'
-        uses: actions/upload-artifact@main
+      - uses: armbian/build@main
         with:
-          name: armbian-image
-          path: ./build/output/images/*.xz
-
-      - name: Upload to release
-        if: env.UPLOAD_RELEASE == 'true'
-        uses: softprops/action-gh-release@v2.1.0
-        with:
-          tag_name: ${{ env.release_tag }}
-          name: Armbian ${{ env.release_tag }}
-          files: ./build/output/images/*.xz
+          armbian_token:     "${{ secrets.GITHUB_TOKEN }}"  # GitHub token
+          armbian_release:   "noble"                        # userspace
+          armbian_target:    "build"                        # build=image, kernel=kernel
+          armbian_board:     "onecloud"                   # build target
