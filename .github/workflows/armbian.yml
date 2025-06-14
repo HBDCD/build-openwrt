@@ -47,7 +47,7 @@ jobs:
           ./compile.sh \
           BOARD=onecloud \
           BRANCH=current \
-          RELEASE=noble \
+          RELEASE=bookworm \
           BUILD_MINIMAL=yes \
           BUILD_DESKTOP=no \
           KERNEL_CONFIGURE=no
